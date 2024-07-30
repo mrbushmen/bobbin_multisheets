@@ -50,6 +50,12 @@ namespace Bobbin
             Instance.StartRefresh();
         }
 
+        [MenuItem("Parser/Refresh CSVs", false, 0)]
+        public static void UpdateConfigs()
+        {
+            DoRefresh();
+        }
+
         [MenuItem("Bobbin/Add URLs and Settings...")]
         public static void OpenSettingsAsset()
         {
@@ -96,8 +102,8 @@ namespace Bobbin
                     }
 
                     // actually send the web request now
-                    currentPair.url = FixURL( currentPair.url );
-                    results[i] = UnityWebRequest.Get( currentPair.url );
+                    var formatterUrl = FixURL(currentPair.url);
+                    results[i] = UnityWebRequest.Get(formatterUrl);
                     yield return results[i].SendWebRequest();
 
                     // handle an unknown internet error
@@ -107,9 +113,10 @@ namespace Bobbin
                         lastReport += string.Format("\n- [ERROR] {0}: {1}", currentPair.name, results[i].error);
                     }
                     else
-                    { 
+                    {
                         // make sure the fetched file isn't just a Google login page
-                        if (results[i].downloadHandler.text.Contains("google-site-verification")) {
+                        if (results[i].downloadHandler.text.Contains("google-site-verification"))
+                        {
                             Debug.LogWarningFormat("Bobbin couldn't retrieve file at <{0}> because the Google Doc didn't have public link sharing enabled", results[i].url);
                             lastReport += string.Format("\n- [ERROR] {0}: This Google Docs share link does not have 'VIEW' access; make sure you enable link sharing.", currentPair.name, currentPair.url);
                             continue;
@@ -118,12 +125,13 @@ namespace Bobbin
                         // reimport only newly changed assets (compare the file hash checksums)
                         var checksum = Md5Sum(results[i].downloadHandler.data);
                         //AssetDatabase.LoadAssetAtPath(currentPair.filePath,typeof(UnityEngine.Object)) == null ||
-                        if (currentPair.assetReference == null ||  currentPair.lastFileHash.Equals(checksum) == false)
+                        if (currentPair.assetReference == null || currentPair.lastFileHash.Equals(checksum) == false)
                         {
                             var fullPath = Application.dataPath.Substring(0, Application.dataPath.Length - "Assets".Length) + currentPair.filePath;
-                            var directoryPath = Path.GetDirectoryName( fullPath );
-                            if ( Directory.Exists(directoryPath) == false) {
-                                Directory.CreateDirectory( directoryPath );
+                            var directoryPath = Path.GetDirectoryName(fullPath);
+                            if (Directory.Exists(directoryPath) == false)
+                            {
+                                Directory.CreateDirectory(directoryPath);
                             }
                             using (FileStream fls = new FileStream(fullPath, FileMode.Create))
                             {
@@ -145,6 +153,8 @@ namespace Bobbin
 
             EditorUtility.SetDirty(BobbinSettings.Instance);
             refreshInProgress = false;
+
+            Debug.Log(lastReport);
         }
 
         // from https://github.com/MartinSchultz/unity3d/blob/master/CryptographyHelper.cs
@@ -169,31 +179,34 @@ namespace Bobbin
 
         public static string FixURL(string url)
         {
-            // if it's a Google Docs URL, then grab the document ID and reformat the URL
-            if (url.StartsWith("https://docs.google.com/document/d/"))
+            if (string.IsNullOrEmpty(url) || !url.Contains("edit?gid="))
             {
-                var docID = url.Substring( "https://docs.google.com/document/d/".Length, 44 );
-                return string.Format("https://docs.google.com/document/export?format=txt&id={0}&includes_info_params=true", docID);
+                Debug.LogError("Invalid URL");
+                return null;
             }
-            if (url.StartsWith("https://docs.google.com/spreadsheets/d/"))
-            {
-                var docID = url.Substring( "https://docs.google.com/spreadsheets/d/".Length, 44 );
-                return string.Format("https://docs.google.com/spreadsheets/export?format=csv&id={0}", docID);
-            }
-            return url;
+
+            int idStartIndex = url.IndexOf("/d/") + 3;
+            int idEndIndex = url.IndexOf("/edit?");
+            string spreadsheetId = url.Substring(idStartIndex, idEndIndex - idStartIndex);
+
+            int gidStartIndex = url.IndexOf("gid=") + 4;
+            string gid = url.Substring(gidStartIndex);
+
+            string csvUrl = $"https://docs.google.com/spreadsheets/d/{spreadsheetId}/export?format=csv&gid={gid}";
+            return csvUrl;
         }
 
         public static string UnfixURL(string url)
         {
-           // if it's a Google Docs URL, then grab the document ID and reformat the URL
+            // if it's a Google Docs URL, then grab the document ID and reformat the URL
             if (url.StartsWith("https://docs.google.com/document/export?format=txt"))
             {
-                var docID = url.Substring( "https://docs.google.com/document/export?format=txt&id=".Length, 44 );
+                var docID = url.Substring("https://docs.google.com/document/export?format=txt&id=".Length, 44);
                 return string.Format("https://docs.google.com/document/d/{0}/edit", docID);
             }
             if (url.StartsWith("https://docs.google.com/spreadsheets/export?format=csv"))
             {
-                var docID = url.Substring( "https://docs.google.com/spreadsheets/export?format=csv&id=".Length, 44 );
+                var docID = url.Substring("https://docs.google.com/spreadsheets/export?format=csv&id=".Length, 44);
                 return string.Format("https://docs.google.com/spreadsheets/d/{0}", docID);
             }
             return url;
